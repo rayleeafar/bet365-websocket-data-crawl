@@ -9,6 +9,7 @@ import threading
 import requests
 import sys
 import collections  
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -65,14 +66,18 @@ class WSClient():
         while True:
         # outer loop restarted every time the connection fails
             logger.debug('Creating new connection...')
-            sessio_id = self._fetch_session_id()
-            nst_token = self._fetch_nst_token()
+            # session_id = self._fetch_session_id()
+            # time.sleep(0.4)
+            # nst_token = self._fetch_nst_token()
+            # time.sleep(0.4)
+            session_id,nst_token = self._get_session_and_nst_via_selenium()
             nst_auth_token = self._gen_nst_auth_code_str(nst_token)
             try:
                 async with websockets.connect(self.url,extra_headers=self._REQ_HEADERS,
                                         extensions=self._REQ_EXTENSIONS,subprotocols=self._REQ_PROTOCOLS) as ws:
                     
-                    message = f'\x23\x03P\x01__time,S_{sessio_id},D_{nst_auth_token}\x00'
+                    message = f'\x23\x03P\x01__time,S_{session_id},D_{nst_auth_token}\x00'
+                    time.sleep(0.5)
                     await ws.send(message)
                     logger.debug(f"> {message}")
 
@@ -152,14 +157,16 @@ class WSClient():
         if not response:
             logger.debug('nst token id: N/A')
             return
-        import re
         
+        return self._re_nst_token_feom_page_source(response.text)
+
+    def _re_nst_token_feom_page_source(self,page_source) :      
         # pattern1 = re.compile("var[\s]+order[\s]*=[\s]*\[\\\'.*?\\\'\];")
         # pattern2 = re.compile("var[\s]+loadingflags[\s]*=[\s]*\[\\\'.*?\\\'\];")
         pattern1 = re.compile("d\[b\(\\'0x1\\\'\)\][\s]*=[\s]*\\\'.*?\\\'[\s]*;")
         pattern2 = re.compile("d\[b\(\\'0x0\\\'\)\][\s]*=[\s]*\\\'.*?\\\'[\s]*;")
-        r1= pattern1.findall(response.text)
-        r2= pattern2.findall(response.text)
+        r1= pattern1.findall(page_source)
+        r2= pattern2.findall(page_source)
         if len(r1) > 0 and len(r2) > 0:
             sr1 = r1[0].split('\'')[3]
             sr2 = r2[0].split('\'')[3]
@@ -206,7 +213,20 @@ class WSClient():
             r +=1
         return ret
    
-
+    def _get_session_and_nst_via_selenium(self):
+        from selenium import webdriver
+        options = webdriver.ChromeOptions()
+        options.add_argument('--headless')  # 无头参数
+        options.add_argument('--no-sandbox')
+        options.add_argument('user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.88 Safari/537.36"')
+        options.add_argument('--disable-dev-shm-usage')
+        driver = webdriver.Chrome(chrome_options=options)
+        driver.get(self._URLS_NSTTOKEN_ID+'#/IP/')
+        time.sleep(6)
+        nst_token = self._re_nst_token_feom_page_source(driver.page_source) 
+        session_id = [d['value'] for d in driver.get_cookies() if d['name'] == 'pstk'][0]
+        logger.debug(f"nst_token:{nst_token},,session_id:{session_id}")
+        return session_id,nst_token
 
 def start_ws_client(client):
     loop = asyncio.new_event_loop()
@@ -217,6 +237,7 @@ def start_ws_client(client):
 async def callback_fn(data,ws,*args, **kwargs):
     # Write here your logic
     if data.startswith('100'):
+        time.sleep(0.2)
         req = str('\x16\x00CONFIG_1_3,OVInPlay_1_3,Media_L1_Z3,XL_L1_Z3_C1_W3\x01')
         await ws.send(req)
         return
