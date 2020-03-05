@@ -237,7 +237,7 @@ def start_ws_client(client):
 async def callback_fn(data,ws,*args, **kwargs):
     # Write here your logic
     if data.startswith('100'):
-        time.sleep(0.2)
+        time.sleep(0.2) # it's very import for you to wait!! slow is fast!
         req = str('\x16\x00CONFIG_1_3,OVInPlay_1_3,Media_L1_Z3,XL_L1_Z3_C1_W3\x01')
         await ws.send(req)
         return
